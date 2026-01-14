@@ -1,0 +1,148 @@
+% traj_cubique_2link.m
+% Offline planning for a 2-link planar arm
+% Cubic polynomial trajectory (conditions: position and zero velocities at endpoints)
+% Author: adapted from the provided slide
+
+clear; 
+close all; 
+clc;
+
+%% ----- Parameters
+L1 = 0.3;          % first link length
+L2 = 0.3;          % second link length
+
+p0 = [0; 0];       % initial position p0 [x; y]
+pf = [0.3; 0.3];   % final position pf [x; y]
+
+tf = 4.0;          % total time
+dt = 0.01;         % sampling interval for trajectory
+
+elbow = 'down';
+
+%% ----- IK for p0 and pf -----
+[q0, ok0] = ik2link(p0(1), p0(2), L1, L2, elbow);
+[qf, okf] = ik2link(pf(1), pf(2), L1, L2, elbow);
+
+if ~ok0
+    error('Initial position p0 outside the workspace.');
+end
+if ~okf
+    error('Final position pf outside the workspace.');
+end
+
+q0 = q0(:); qf = qf(:);
+
+%% ----- Compute cubic polynomial coefficients for each joint -----
+% Conditions: q(0)=q0, qdot(0)=0, q(tf)=qf, qdot(tf)=0
+a_j1 = cubicCoeffs(q0(1), qf(1), tf);   % coefficients [a0;a1;a2;a3] for joint 1
+a_j2 = cubicCoeffs(q0(2), qf(2), tf);   % same for joint 2
+
+%% ----- Trajectory sampling -----
+t = 0:dt:tf;
+N = numel(t);
+
+q_ref   = zeros(2,N);
+qd_ref  = zeros(2,N);
+qdd_ref = zeros(2,N);
+
+for k = 1:N
+    tt = t(k);
+    [q_ref(1,k), qd_ref(1,k), qdd_ref(1,k)] = evalCubic(a_j1, tt);
+    [q_ref(2,k), qd_ref(2,k), qdd_ref(2,k)] = evalCubic(a_j2, tt);
+end
+
+%% ----- Forward kinematics to plot end-effector trajectory -----
+xee = L1*cos(q_ref(1,:)) + L2*cos(q_ref(1,:) + q_ref(2,:));
+yee = L1*sin(q_ref(1,:)) + L2*sin(q_ref(1,:) + q_ref(2,:));
+
+%% ----- Figures -----
+figure('Name','Joint trajectories');
+subplot(3,1,1)
+plot(t, q_ref(1,:), 'LineWidth',1.4); 
+hold on;
+plot([0 tf],[q0(1) qf(1)],'--k');
+xlabel('t (s)'); ylabel('\theta_1 (rad)'); title('Position \theta_1(t)'); grid on;
+
+subplot(3,1,2)
+plot(t, qd_ref(1,:), 'LineWidth',1.2); xlabel('t (s)'); ylabel(' \dot\theta_1 (rad/s)'); title('Velocity \theta_1'); grid on;
+
+subplot(3,1,3)
+plot(t, qdd_ref(1,:), 'LineWidth',1.2); xlabel('t (s)'); ylabel(' \ddot\theta_1 (rad/s^2)'); title('Acceleration \theta_1'); grid on;
+
+figure('Name','Joint 2 trajectory');
+subplot(3,1,1)
+plot(t, q_ref(2,:), 'LineWidth',1.4); 
+hold on;
+plot([0 tf],[q0(2) qf(2)],'--k');
+xlabel('t (s)'); ylabel('\theta_2 (rad)'); title('Position \theta_2(t)'); grid on;
+
+subplot(3,1,2)
+plot(t, qd_ref(2,:), 'LineWidth',1.2); xlabel('t (s)'); ylabel(' \dot\theta_2 (rad/s)'); title('Velocity \theta_2'); grid on;
+
+subplot(3,1,3)
+plot(t, qdd_ref(2,:), 'LineWidth',1.2); xlabel('t (s)'); ylabel(' \ddot\theta_2 (rad/s^2)'); title('Acceleration \theta_2'); grid on;
+
+figure('Name','End-effector trajectory');
+plot(xee, yee, 'LineWidth',1.6); hold on;
+plot(p0(1), p0(2),'go','MarkerSize',8,'DisplayName','p_0');
+plot(pf(1), pf(2),'ro','MarkerSize',8,'DisplayName','p_f');
+xlabel('x (m)'); ylabel('y (m)'); axis equal; grid on;
+title('End-effector trajectory (Cartesian space)');
+legend('trajectory','p_0','p_f');
+
+%% ----- Summary -----
+fprintf('q0 = [%.4f, %.4f] rad\n', q0(1), q0(2));
+fprintf('qf = [%.4f, %.4f] rad\n', qf(1), qf(2));
+fprintf('Cubic trajectory planned in %g s, %d points.\n', tf, N);
+
+%% ==========================
+% ------- FUNCTIONS ---------
+% ==========================
+function [q, ok] = ik2link(x, y, L1, L2, elbow)
+    % Inverse kinematics for 2-link planar arm (q = [q1; q2])
+    r2 = x^2 + y^2;
+    cosq2 = (r2 - L1^2 - L2^2) / (2*L1*L2);
+    tol = 1e-10;
+    if cosq2 > 1+tol || cosq2 < -1-tol
+        q = [0;0]; ok = false; return;
+    end
+    cosq2 = min(1, max(-1, cosq2));
+    if strcmpi(elbow,'down')
+        sq2 = -sqrt(max(0, 1 - cosq2^2));
+    else
+        sq2 = +sqrt(max(0, 1 - cosq2^2));
+    end
+    q2 = atan2(sq2, cosq2);
+    k1 = L1 + L2*cosq2;
+    k2 = L2*sq2;
+    q1 = atan2(y, x) - atan2(k2, k1);
+    q1 = wrapToPi(q1); q2 = wrapToPi(q2);
+    q = [q1; q2]; ok = true;
+end
+
+function a = cubicCoeffs(q0, qf, T)
+    % Computes a0..a3 for q(t)=a0 + a1 t + a2 t^2 + a3 t^3
+    % Conditions: q(0)=q0, qdot(0)=0, q(T)=qf, qdot(T)=0
+    % Closed-form solution:
+    % a0 = q0
+    % a1 = 0
+    % a2 = 3*(qf-q0)/T^2
+    % a3 = -2*(qf-q0)/T^3
+    a0 = q0;
+    a1 = 0;
+    a2 = 3*(qf - q0) / (T^2);
+    a3 = -2*(qf - q0) / (T^3);
+    a = [a0; a1; a2; a3];
+end
+
+function [q, qd, qdd] = evalCubic(a, t)
+    % Evaluate q, qdot, qdd at time t for coefficients a = [a0;a1;a2;a3]
+    a0=a(1); a1=a(2); a2=a(3); a3=a(4);
+    q   = a0 + a1*t + a2*t^2 + a3*t^3;
+    qd  = a1 + 2*a2*t + 3*a3*t^2;
+    qdd = 2*a2 + 6*a3*t;
+end
+
+function ang = wrapToPi(ang)
+    ang = mod(ang+pi, 2*pi) - pi;
+end
