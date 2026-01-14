@@ -1,8 +1,3 @@
-% traj_cubique_2link.m
-% Offline planning for a 2-link planar arm
-% Cubic polynomial trajectory (conditions: position and zero velocities at endpoints)
-% Author: adapted from the provided slide
-
 clear; 
 close all; 
 clc;
@@ -17,7 +12,7 @@ pf = [0.3; 0.3];   % final position pf [x; y]
 tf = 4.0;          % total time
 dt = 0.01;         % sampling interval for trajectory
 
-elbow = 'down';
+elbow = 'down'; % to align with our needs
 
 %% ----- IK for p0 and pf -----
 [q0, ok0] = ik2link(p0(1), p0(2), L1, L2, elbow);
