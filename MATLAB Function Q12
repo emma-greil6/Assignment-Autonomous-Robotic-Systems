@@ -6,13 +6,13 @@ clc;
 L1 = 0.3;          % first link length
 L2 = 0.3;          % second link length
 
-p0 = [0; 0];       % initial position p0 [x; y]
+p0 = [0; -0.6];       % initial position p0 [x; y]
 pf = [0.3; 0.3];   % final position pf [x; y]
 
 tf = 4.0;          % total time
 dt = 0.01;         % sampling interval for trajectory
 
-elbow = 'down'; % to align with our needs
+elbow = 'down';
 
 %% ----- IK for p0 and pf -----
 [q0, ok0] = ik2link(p0(1), p0(2), L1, L2, elbow);
@@ -102,10 +102,10 @@ function [q, ok] = ik2link(x, y, L1, L2, elbow)
         q = [0;0]; ok = false; return;
     end
     cosq2 = min(1, max(-1, cosq2));
-    if strcmpi(elbow,'down')
-        sq2 = -sqrt(max(0, 1 - cosq2^2));
+    if strcmpi(elbow,'up')
+        sq2 = -sqrt(max(0, 1 - cosq2^2));   % elbow UP
     else
-        sq2 = +sqrt(max(0, 1 - cosq2^2));
+        sq2 = +sqrt(max(0, 1 - cosq2^2));   % elbow DOWN
     end
     q2 = atan2(sq2, cosq2);
     k1 = L1 + L2*cosq2;
